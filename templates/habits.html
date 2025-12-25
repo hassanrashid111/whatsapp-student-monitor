@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>سجل تتبع العادات  | المشرف</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* تنسيقات خاصة لجدول العادات */
+        .habits-table th { font-size: 0.8rem; white-space: nowrap; padding: 10px 5px; text-align: center; }
+        .habits-table td { text-align: center; padding: 5px; }
+        .habits-container { padding: 2rem; max-width: 100%; overflow-x: auto; }
+        input[type="checkbox"] { width: 20px; height: 20px; accent-color: #1A5D3A; }
+        
+        /* تمييز أعمدة التعلم بلون خفيف مختلف */
+        /*.learning-col { background-color: #fcf3cf; color: #7d6608; }*/
+
+        /* ==================== الإصلاح ==================== */
+        /* إلغاء تأثير "تثبيت العمود الثاني" القادم من الصفحة الرئيسية */
+        .habits-table th:nth-child(2),
+        .habits-table td:nth-child(2) {
+            position: static !important; /* إلغاء التثبيت */
+            background-color: inherit !important; /* يأخذ لون الصف (أحمر/أخضر) */
+            box-shadow: none !important; /* إلغاء الظل */
+            border-left: 1px solid #ddd !important; /* إرجاع الحدود الطبيعية */
+        }
+
+        /* إصلاح العمود الأول (التاريخ) ليأخذ لون الصف الملون */
+        .habits-table th:first-child,
+        .habits-table td:first-child {
+            background-color: inherit !important; /* عشان ما يبقاش أبيض والصف أحمر */
+            color: inherit !important;
+            border-left: 1px solid #ddd !important;
+        }
+    </style>
+</head>
+<body>
+    <header class="main-header">
+        <div class="header-right">
+            <div class="logo-area">
+                <i class="fa-solid fa-heart-pulse logo-icon"></i>
+                <div>
+                    <h2>سجل تتبع العادات </h2>
+                    <span>"قليل دائم خير من كثير منقطع"</span>
+                </div>
+            </div>
+        </div>
+        <div class="header-left">
+            <button class="btn-action" onclick="addTodayRow()">
+                <i class="fa-solid fa-calendar-plus"></i> إضافة اليوم
+            </button>
+            <a href="/" class="btn-action" style="text-decoration: none;">
+                <i class="fa-solid fa-house"></i> العودة للرئيسية
+            </a>
+        </div>
+    </header>
+
+    <div class="habits-container">
+        <div class="table-card">
+            <div class="table-responsive">
+                <table class="habits-table">
+                    <thead>
+                        <tr>
+                            <th>التاريخ</th>
+                            <th>قيام الليل</th>
+                            <th>سنة الفجر</th>
+                            <th>الفجر</th>
+                            <th>أذكار الصباح</th>
+                            <th>الضحى</th>
+                            <th>سنة الظهر</th>
+                            <th>الظهر</th>
+                            <th>العصر</th>
+                            <th>أذكار المساء</th>
+                            <th>المغرب</th>
+                            <th>سنة المغرب</th>
+                            <th>العشاء</th>
+                            <th>سنة العشاء</th>
+                            <th >1000 ذكر</th>
+
+                            <th class="learning-col">صفحة جديد</th>
+                            <th class="learning-col">ربع قديم</th>
+                            <th class="learning-col">جزء قراءة</th>
+                            <th class="learning-col">حفظ حديث</th>
+                            <th class="learning-col">تجويد</th>
+                            
+                            <th>يوم نظيف؟</th>
+                            <th>النسبة</th>
+                            <th>حذف</th>
+                        </tr>
+                    </thead>
+                    <tbody id="habits-body">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const HABITS_KEY = 'Sabiq_habits_data';
+        
+        // تم تحديث القائمة لتشمل العناصر الجديدة
+        const KEYS = [
+            'qiyam', 'fajrSunnah', 'fajr', 'azkarMorning', 'duha', 'dhuhrSunnah', 'dhuhr', 'asr', 'azkarEvening', 'maghrib', 'maghribSunnah', 'isha', 'ishaSunnah',
+            // المفاتيح الجديدة
+            'newPage', 'oldQuarter', 'readingPart', 'hadith', 'python', 'css'
+        ];
+        
+        let habitsData = JSON.parse(localStorage.getItem(HABITS_KEY)) || [];
+
+        function init() {
+
+
+
+            renderTable();
+        }
+
+        function saveData() {
+            localStorage.setItem(HABITS_KEY, JSON.stringify(habitsData));
+            renderTable();
+        }
+
+        function addTodayRow() {
+            const today = new Date().toLocaleDateString('ar-EG');
+            if(habitsData.some(d => d.date === today)) {
+                alert('تمت إضافة هذا اليوم مسبقاً!');
+                return;
+            }
+
+            const newEntry = {
+                id: Date.now(),
+                date: today,
+                checks: {}, 
+                clean: true 
+            };
+            
+            KEYS.forEach(k => newEntry.checks[k] = false);
+            
+            habitsData.unshift(newEntry); 
+            saveData();
+        }
+
+        function toggleCheck(id, key) {
+            const row = habitsData.find(d => d.id === id);
+            if(row) {
+                row.checks[key] = !row.checks[key];
+                saveData();
+            }
+        }
+
+        function toggleClean(id) {
+            const row = habitsData.find(d => d.id === id);
+            if(row) {
+                row.clean = !row.clean;
+                saveData();
+            }
+        }
+
+        function deleteRow(id) {
+            if(confirm('هل أنت متأكد من حذف سجل هذا اليوم؟')) {
+                habitsData = habitsData.filter(d => d.id !== id);
+                saveData();
+            }
+        }
+
+        function calculateScore(entry) {
+            let score = 0;
+            KEYS.forEach(k => { if(entry.checks[k]) score++; });
+            if(entry.clean) score++;
+            
+            const totalItems = KEYS.length + 1; 
+            return Math.round((score / totalItems) * 100);
+        }
+
+        function getRowClass(percent) {
+            if (percent >= 90) return 'grade-excellent';
+            if (percent >= 70) return 'grade-good';
+            if (percent >= 50) return 'grade-warning';
+            if (percent >= 30) return 'grade-bad';
+            return 'grade-critical';
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('habits-body');
+            tbody.innerHTML = '';
+
+            habitsData.forEach(entry => {
+                const percent = calculateScore(entry);
+                const rowClass = getRowClass(percent);
+                
+                let html = `<tr class="${rowClass}">
+                    <td style="font-weight:bold;">${entry.date}</td>`;
+
+                KEYS.forEach(key => {
+                    const checked = entry.checks[key] ? 'checked' : '';
+                    // تمييز خلفية خانات التعلم لتكون متناسقة مع الهيدر
+                    const isLearning = ['newPage', 'oldQuarter', 'readingPart', 'hadith', 'python', 'css'].includes(key);
+                    const tdStyle = isLearning ? 'background-color: rgba(252, 243, 207, 0.3);' : '';
+                    
+                    html += `<td style="${tdStyle}"><input type="checkbox" ${checked} onchange="toggleCheck(${entry.id}, '${key}')"></td>`;
+                });
+
+                const cleanBtnClass = entry.clean ? 'clean-yes' : 'clean-no';
+                const cleanText = entry.clean ? 'نعم' : 'لا';
+                html += `<td>
+                    <button class="btn-clean-toggle ${cleanBtnClass}" onclick="toggleClean(${entry.id})">
+                        ${cleanText}
+                    </button>
+                </td>`;
+
+                html += `<td style="font-weight:bold; direction:ltr;">${percent}%</td>`;
+                html += `<td><button class="btn-delete-row" onclick="deleteRow(${entry.id})"><i class="fa-solid fa-trash"></i></button></td>`;
+                html += `</tr>`;
+                tbody.innerHTML += html;
+            });
+        }
+
+        init();
+    </script>
+</body>
+</html>

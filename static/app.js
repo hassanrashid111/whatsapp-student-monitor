@@ -1,21 +1,21 @@
 /**
- * Alsharif Educational Platform
- * Core Application Logic
+ * Sabiq Educational Platform
+ * Core Application Logic (Full Version)
  */
 
-// مفتاح التخزين (تم التحديث لضمان ظهور الأحاديث الجديدة)
-const APP_KEY = 'alsharif_data_v2'; 
-const SESSION_KEY = 'alsharif_session';
+const APP_KEY = 'Sabiq_data_v0'; 
+const SESSION_KEY = 'Sabiq_session';
 
 // State Object
 let state = {
     students: [],
     lectures: [],
     settings: {
-        totalPlannedLectures: 30
-    }
+    totalPlannedLectures: 8
+    },
+    messageBatchCount: 0
 };
-
+let performanceChart = null; 
 // Application Interface (Global)
 window.app = {
     init: () => init(),
@@ -27,8 +27,27 @@ window.app = {
     exportData: () => exportToExcel(),
     sendMessages: () => startMessagingFlow(),
     deleteStudent: (id) => deleteStudentFlow(id),
-    deleteLecture: (id) => deleteLectureFlow(id) 
+    deleteLecture: (id) => deleteLectureFlow(id),
+    search: () => handleSearch(),
+    sort: (criteria, id) => sortStudents(criteria, id),
+    toggleTheme: () => toggleTheme(),
+    openNotes: (id) => openNotesModal(id),
+    closeNotes: () => closeNotesModal(),
+    saveNotes: () => saveStudentNotes(),
+    getReport: () => getReportFile(),
+    backupData: () => backupData(),
+    restoreData: (e) => restoreData(e),
+    manualStatus: (days) => manualStatus(days),
+    openImport: () => document.getElementById('import-modal').style.display = 'flex',
+    closeImport: () => document.getElementById('import-modal').style.display = 'none',
+    saveImport: () => processBulkImport(),
+    editStudent: (id) => openEditStudentModal(id),
+    saveEditStudent: () => saveStudentDataEdit(),
+    clearAllData: () => wipeAllData(),
+    downloadCert: (name, count) => downloadCertificate(name, count)
 };
+ 
+
 
 // ================= INITIALIZATION =================
 function init() {
@@ -36,12 +55,14 @@ function init() {
     checkSession();
     renderDate();
     renderHadith();
+    loadTheme();
 }
 
 function loadData() {
     const raw = localStorage.getItem(APP_KEY);
     if (raw) {
         state = JSON.parse(raw);
+        if (typeof state.messageBatchCount === 'undefined') state.messageBatchCount = 0;
     } else {
         seedData();
     }
@@ -50,10 +71,10 @@ function loadData() {
 function seedData() {
     state = {
         students: [],
-        lectures: [
-            { id: 'lec_1', title: 'محاضرة 1' }
-        ],
-        settings: { totalPlannedLectures: 8 } 
+        // ضفنا timestamp هنا
+        lectures: [{ id: 'lec_1', title: 'محاضرة 1', timestamp: Date.now() }], 
+        settings: { totalPlannedLectures: 8 }, // عدلتها 8 زي ما كانت فوق
+        messageBatchCount: 0
     };
     saveData();
 }
@@ -65,18 +86,14 @@ function saveData() {
 
 function checkSession() {
     const isLoggedIn = localStorage.getItem(SESSION_KEY) === 'true';
-    if (isLoggedIn) {
-        showDashboard();
-    } else {
-        showLogin();
-    }
+    if (isLoggedIn) showDashboard();
+    else showLogin();
 }
 
 // ================= AUTHENTICATION =================
 function handleLogin() {
     const userIn = document.getElementById('username').value;
     const passIn = document.getElementById('password').value;
-
     const storedUser = localStorage.getItem('admin_user') || 'admin';
     const storedPass = localStorage.getItem('admin_pass') || '123456';
 
@@ -96,7 +113,6 @@ function handleLogout() {
 function showLogin() {
     document.getElementById('login-view').style.display = 'flex';
     document.getElementById('dashboard-view').style.display = 'none';
-
     document.getElementById('login-form').onsubmit = (e) => {
         e.preventDefault();
         handleLogin();
@@ -108,64 +124,109 @@ function showDashboard() {
     document.getElementById('dashboard-view').style.display = 'flex'; 
     renderDashboard();
 }
+  
 
+// دالة جديدة لحساب النسبة المئوية بناءً على الدرجات (مش بس الحضور)
+function getStudentTotalScore(student) {
+    if (state.lectures.length === 0) return 0;
+    
+    let totalScore = 0;
+    state.lectures.forEach(lec => {
+        // لو المحاضرة قديمة ومفيش ليها تاريخ، بنعتبر تاريخها النهاردة عشان الحسابات ما تضربش
+        const ts = lec.timestamp || Date.now();
+        const score = calculateScore(ts, student.progress[lec.id]);
+        totalScore += score;
+    });
+    
+    // المعادلة: (مجموع درجات الطالب / (عدد المحاضرات × 100)) × 100
+    const maxScore = state.lectures.length * 100;
+    return Math.round((totalScore / maxScore) * 100);
+}
 // ================= DASHBOARD RENDERING =================
 function renderDashboard() {
-    renderTable();
+    handleSearch(); 
     renderStats();
 }
 
-function renderTable() {
+function renderTable(studentsList = null) {
+    const dataToRender = studentsList || state.students;
     const thead = document.getElementById('table-header-row');
     const tbody = document.getElementById('students-body');
 
-    // 1. Render Headers
+    // Headers
     let headersHTML = `
         <th>#</th>
-        <th>اسم الطالب</th>
+        <th class="sortable-header" onclick="window.app.sort('name')" title="اضغط للترتيب" style="cursor:pointer">
+            اسم الطالب <i class="fa-solid fa-sort"></i>
+        </th>
         <th>رقم الهاتف</th>
     `;
     
-    state.lectures.forEach(lec => {
+   state.lectures.forEach(lec => {
         headersHTML += `
             <th class="lecture-header">
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 5px;">
-                    <span>${lec.title}</span>
-                    <button onclick="window.app.deleteLecture('${lec.id}')" 
-                            style="background:none; border:none; color:#E74C3C; cursor:pointer; font-size:0.8rem;" 
-                            title="حذف العمود">
-                        <i class="fa-solid fa-circle-minus"></i>
-                    </button>
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 5px;">
+                    <span onclick="window.app.sort('lecture', '${lec.id}')" style="cursor:pointer; user-select:none; font-size:0.9rem;">
+                        ${lec.title} <i class="fa-solid fa-sort" style="opacity:0.3; font-size:0.7rem;"></i>
+                    </span>
+                    
+                    <div style="display:flex; gap:5px;">
+                        <button onclick="window.app.downloadLecturePDF('${lec.id}', '${lec.title}')" 
+                                style="background:none; border:none; color:#27AE60; cursor:pointer; font-size:0.9rem;" 
+                                title="تحميل شهادات الحضور PDF">
+                            <i class="fa-solid fa-file-pdf"></i>
+                        </button>
+
+                        <button onclick="window.app.deleteLecture('${lec.id}')" 
+                                style="background:none; border:none; color:#E74C3C; cursor:pointer; font-size:0.9rem;" 
+                                title="حذف العمود">
+                            <i class="fa-solid fa-circle-minus"></i>
+                        </button>
+                    </div>
                 </div>
             </th>`;
     });
     
-    headersHTML += `<th><i class="fa-solid fa-trash-can"></i></th>`; 
+    headersHTML += `
+        <th class="sortable-header" onclick="window.app.sort('score')" title="ترتيب بالأكثر حضوراً" style="cursor:pointer">
+             <i class="fa-solid fa-chart-simple"></i> / <i class="fa-solid fa-trash-can"></i>
+        </th>`;
+    
     thead.innerHTML = headersHTML;
 
-    // 2. Render Rows
+    // Rows
     tbody.innerHTML = '';
-
     const latestLecId = state.lectures.length > 0 ? state.lectures[state.lectures.length - 1].id : null;
 
-    state.students.forEach((student, index) => {
+    dataToRender.forEach((student, index) => {
         const isCompletedLatest = latestLecId ? student.progress[latestLecId] : false;
         const rowClass = isCompletedLatest ? 'row-tested' : 'row-active';
+        
+        // الرقم التسلسلي الثابت
+        const originalIndex = state.students.findIndex(s => s.id === student.id);
+        const serial = (originalIndex + 1).toString().padStart(3, '0');
 
-        const serial = (index + 1).toString().padStart(3, '0');
+        // حساب النسبة المئوية
+        const percent = getStudentTotalScore(student);
+        let progressColor = '#E74C3C'; // أحمر
+        if (percent >= 75) progressColor = '#27AE60'; // أخضر
+        else if (percent >= 50) progressColor = '#F39C12'; // برتقالي
 
-        const badgeHTML = isCompletedLatest
-            ? `<span class="status-badge completed">مكتمل</span>`
-            : '';
+        const badgeHTML = isCompletedLatest ? `<span class="status-badge completed">مكتمل</span>` : '';
 
         let rowHTML = `<tr class="${rowClass}">
             <td><span style="color:var(--primary-green); font-weight:bold;">${serial}</span></td>
             <td>
                 <div style="display:flex; align-items:center; gap: 10px;">
-                    <div class="student-avatar">${getInitials(student.name)}</div>
-                    <div style="display:flex; flex-direction:column;">
-                        <span style="font-weight:600;">${student.name}</span>
+                    <div class="student-avatar" style="background:#f0f0f0; color:#555;">${getInitials(student.name)}</div>
+                    <div style="display:flex; flex-direction:column; width:100%">
+                        <span class="clickable-name" onclick="window.app.openNotes(${student.id})" title="ملاحظات" style="cursor:pointer; font-weight:bold;">
+                            ${student.name}
+                        </span>
                         ${badgeHTML}
+                        <div class="progress-track" style="background:#eee; height:5px; width:100%; margin-top:5px; border-radius:3px; overflow:hidden;">
+                            <div style="width:${percent}%; background:${progressColor}; height:100%; border-radius:3px;"></div>
+                        </div>
                     </div>
                 </div>
             </td>
@@ -173,63 +234,76 @@ function renderTable() {
         `;
 
         state.lectures.forEach(lec => {
-            const isChecked = student.progress[lec.id] || false;
+            const progressValue = student.progress[lec.id];
+            const isChecked = !!progressValue;
+            
             rowHTML += `
-                <td>
-                    <div class="check-wrapper">
+                <td oncontextmenu="showContextMenu(event, ${student.id}, '${lec.id}')">
+                    <div class="check-wrapper" style="justify-content: center;">
                         <input type="checkbox" ${isChecked ? 'checked' : ''} 
-                        onchange="window.app.toggleCheck(${student.id}, '${lec.id}')">
+                        onchange="window.app.toggleCheck(${student.id}, '${lec.id}')"
+                        title="انقر يميناً لخيارات التاريخ">
                     </div>
                 </td>
             `;
         });
+        
+        const isPerfect = percent === 100;
 
         rowHTML += `
+            <td style="font-weight:bold; color:${progressColor}">${percent}%</td>
             <td>
-                <button class="btn-delete-row" onclick="window.app.deleteStudent(${student.id})">
-                    <i class="fa-solid fa-trash"></i>
-                </button>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    
+                    <button class="btn-action" 
+                            style="background:${isPerfect ? '#D4AF37' : '#2980b9'}; color:white; padding:5px 10px; border:none; border-radius:4px; cursor:pointer;" 
+                            onclick="window.app.downloadCert('${student.name}', ${state.lectures.length})" 
+                            title="تحميل الشهادة">
+                        <i class="fa-solid fa-award"></i>
+                    </button>
+
+                    <button class="btn-delete-row" style="color:var(--primary-green); margin-left:5px;" onclick="window.app.editStudent(${student.id})" title="تعديل البيانات">
+                        <i class="fa-solid fa-pen"></i>
+                    </button>
+                    <button class="btn-delete-row" onclick="window.app.deleteStudent(${student.id})">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
             </td>
         `;
-
         rowHTML += `</tr>`;
         tbody.innerHTML += rowHTML;
     });
 
-    const displayCount = `عرض 1 إلى ${state.students.length} من أصل ${state.students.length} طالب`;
-    document.querySelector('.pagination span').innerText = displayCount;
+    document.querySelector('.pagination span').innerText = `عرض ${dataToRender.length} من أصل ${state.students.length}`;
 }
 
 function renderStats() {
     const total = state.students.length;
     const latestLecId = state.lectures.length > 0 ? state.lectures[state.lectures.length - 1].id : null;
     let absence = 0;
-
     if (latestLecId) {
         absence = state.students.filter(s => !s.progress[latestLecId]).length;
     }
-
-    const remainingLectures = state.settings.totalPlannedLectures - state.lectures.length;
+    const remaining = state.settings.totalPlannedLectures - state.lectures.length;
 
     document.getElementById('stat-total').innerText = total;
     document.getElementById('stat-absence').innerText = absence;
-    document.getElementById('stat-remaining').innerText = remainingLectures > 0 ? remainingLectures : 0;
+    document.getElementById('stat-remaining').innerText = remaining > 0 ? remaining : 0;
 }
 
 function renderDate() {
     try {
         const date = new Date();
         const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', calendar: 'islamic-umalqura' };
-        const dateString = new Intl.DateTimeFormat('ar-SA-u-ca-islamic', options).format(date);
-        document.querySelector('.date-display').innerText = dateString;
+        document.querySelector('.date-display').innerText = new Intl.DateTimeFormat('ar-SA-u-ca-islamic', options).format(date);
     } catch (e) {
         document.querySelector('.date-display').innerText = new Date().toLocaleDateString('ar-EG');
     }
 }
 
-// ================= HADITH RENDERER (UPDATED LIST) =================
+// ================= HADITH =================
 function renderHadith() {
-    // قائمة الأحاديث من كتيب 100 حديث للحفظ (بالإسناد والتخريج)
     const hadiths = [
         "عن عمر بن الخطاب رضي الله عنه قال: سمعت رسول الله ﷺ يقول: «إنما الأعمال بالنيات، وإنما لكل امرئ ما نوى». \n(متفق عليه)",
         "عن أبي هريرة رضي الله عنه قال: قال رسول الله ﷺ: «كلمتان خفيفتان على اللسان، ثقيلتان في الميزان، حبيبتان إلى الرحمن: سبحان الله وبحمده، سبحان الله العظيم». \n(متفق عليه)",
@@ -307,16 +381,13 @@ function renderHadith() {
         "عن أبي هريرة رضي الله عنه قال: قال رسول الله ﷺ: «أتدرون ما الغيبة؟ قالوا: الله ورسوله أعلم. قال: ذكرك أخاك بما يكره». \n(رواه مسلم)",
         "عن أبي موسى رضي الله عنه قال: قال رسول الله ﷺ: «كل مسكر حرام». \n(متفق عليه)"
     ];
-
+    
     const randomIndex = Math.floor(Math.random() * hadiths.length);
     const quoteElement = document.querySelector('.quote-box p');
-    
     if (quoteElement) {
         quoteElement.innerText = hadiths[randomIndex];
-        // تنسيق إضافي لضمان ظهور النص بشكل جميل مع التخريج
         quoteElement.style.lineHeight = "1.8"; 
-        quoteElement.style.whiteSpace = "pre-line"; // يسمح بظهور السطر الجديد للتخريج
-        quoteElement.style.fontSize = "0.95rem"; 
+        quoteElement.style.whiteSpace = "pre-line"; 
     }
 }
 
@@ -324,157 +395,868 @@ function renderHadith() {
 function addStudentFlow() {
     const name = prompt('أدخل اسم الطالب:');
     if (!name) return;
-    const phone = prompt('أدخل رقم الهاتف (مع مفتاح الدولة، مثال: 20...):');
+    const phone = prompt('أدخل رقم الهاتف:');
     if (!phone) return;
 
-    const newStudent = {
+    state.students.push({
         id: Date.now(),
         name: name,
-        phone: phone,
-        progress: {}
-    };
-
-    state.students.push(newStudent);
+        phone: cleanPhone(phone),
+        progress: {},
+        notes: ''
+    });
     saveData();
 }
 
 function addLectureFlow() {
-    const count = state.lectures.length + 1;
-    const title = prompt('عنوان المحاضرة:', `محاضرة ${count}`);
+    const title = prompt('عنوان المحاضرة:', `محاضرة ${state.lectures.length + 1}`);
     if (!title) return;
-
-    const newLec = {
+    state.lectures.push({
         id: `lec_${Date.now()}`,
         title: title,
         timestamp: Date.now()
-    };
-
-    state.lectures.push(newLec);
+    });
     saveData();
 }
 
 function deleteStudentFlow(id) {
-    if (confirm('هل أنت متأكد من حذف هذا الطالب؟ لا يمكن التراجع عن هذا الإجراء.')) {
+    if (confirm('حذف الطالب؟')) {
         state.students = state.students.filter(s => s.id !== id);
         saveData();
     }
 }
 
 function deleteLectureFlow(id) {
-    const lec = state.lectures.find(l => l.id === id);
-    if (!lec) return;
-
-    if (confirm(`هل أنت متأكد من حذف عمود "${lec.title}"؟\nسيتم حذف جميع بيانات الحضور المرتبطة به.`)) {
+    if (confirm('حذف المحاضرة وجميع سجلات الحضور المرتبطة بها؟')) {
         state.lectures = state.lectures.filter(l => l.id !== id);
-        
-        state.students.forEach(s => {
-            if (s.progress && s.progress[id]) {
-                delete s.progress[id];
-            }
-        });
-
+        state.students.forEach(s => { if (s.progress) delete s.progress[id]; });
         saveData();
     }
 }
 
-function toggleStudentCheck(studentId, lectureId) {
-    const student = state.students.find(s => s.id === studentId);
+function toggleStudentCheck(sId, lId) {
+    const student = state.students.find(s => s.id === sId);
     if (student) {
-        const current = student.progress[lectureId] || false;
-        student.progress[lectureId] = !current;
-        saveData(); 
+        // إذا كان الطالب محضر مسبقاً، نلغي التحضير
+        if (student.progress[lId]) {
+            delete student.progress[lId]; 
+        } else {
+            // إذا لم يكن محضر، نسجل "تاريخ اللحظة الحالية" بدلاً من true
+            student.progress[lId] = Date.now();
+        }
+        saveData();
+        // إعادة رسم الجدول لتحديث الألوان إذا كنت تستخدم ألوان تعتمد على الحالة
+        // لكن بما أن الـ Checkbox يعتمد على وجود قيمة، فالنظام سيعمل طبيعي
     }
 }
 
-// ================= MESSAGING LOGIC =================
+// 2. دالة مساعدة لحساب الدرجة بناءً على الأيام (منطق السبت 100، الأحد 90...)
+function calculateScore(lectureTimestamp, checkTimestamp) {
+    if (!checkTimestamp) return 0; 
+    if (checkTimestamp === true) return 100; 
+
+    // التعديل هنا: لو مفيش تاريخ للمحاضرة، افترض إنه دلوقتي (عشان القديم يشتغل)
+    const lecDate = new Date(lectureTimestamp || Date.now());
+    lecDate.setHours(0,0,0,0);
+    
+    const checkDate = new Date(checkTimestamp);
+    checkDate.setHours(0,0,0,0);
+
+    const diffTime = checkDate - lecDate;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays <= 0) return 100; 
+    if (diffDays === 1) return 90; 
+    if (diffDays === 2) return 80; 
+    if (diffDays === 3) return 70; 
+    if (diffDays === 4) return 60; 
+    if (diffDays === 5) return 50; 
+    if (diffDays === 6) return 40; 
+    
+    if (diffDays <= 13) return 30; 
+    if (diffDays <= 20) return 20; 
+    
+    return 10; 
+}
+// ================= MESSAGING =================
 async function startMessagingFlow() {
     const msgText = document.getElementById('message-text').value;
-    if (!msgText.trim()) { alert('الرجاء كتابة نص الرسالة'); return; }
 
-    if (state.lectures.length === 0) { alert('لا توجد محاضرات'); return; }
+    if (!msgText.trim()) { 
+        alert('الرجاء كتابة نص الرسالة.'); return; 
+    }
+
+    if (state.lectures.length === 0) { alert('لا توجد محاضرات.'); return; }
     
-    const latestLecId = state.lectures[state.lectures.length - 1].id;
-    const targetsRaw = state.students.filter(s => !s.progress[latestLecId]);
+    // تحديد آخر محاضرة (التي يتم الإرسال بناءً عليها)
+    const latestLecIndex = state.lectures.length - 1;
+    const latestLec = state.lectures[latestLecIndex];
+    
+    const targetsRaw = state.students.filter(s => !s.progress[latestLec.id]);
 
     if (targetsRaw.length === 0) { alert('لا يوجد غياب لهذه المحاضرة!'); return; }
 
     const targets = targetsRaw.map(s => ({
         name: s.name,
-        phone: s.phone.replace(/\D/g, '') 
+        phone: cleanPhone(s.phone)
     }));
 
-    if (!confirm(`سيتم تشغيل البوت لإرسال رسائل لـ ${targets.length} طالب.\n\n1. سيفتح متصفح جديد تلقائياً.\n2. ستحتاج لمسح QR Code الواتساب (مرة واحدة فقط إذا لم تكن مسجلاً).\n3. اترك الجهاز يعمل حتى ينتهي.\n\nهل أنت موافق؟`)) return;
+    if (!confirm(`سيتم الإرسال لـ ${targets.length} طالب.\nهل أنت متأكد؟`)) return;
 
     const btn = document.querySelector('.btn-whatsapp');
     const oldText = btn.innerHTML;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الاتصال بالبوت...';
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
     btn.disabled = true;
+
+    const includeNameElement = document.getElementById('include-name-toggle');
+    const includeName = includeNameElement ? includeNameElement.checked : true;
+
+    const payload = {
+        students: targets,
+        message: msgText,
+        include_name: includeName 
+    };
 
     try {
         const response = await fetch('/api/send_whatsapp', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                students: targets,
-                message: msgText
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
 
         const result = await response.json();
-
         if (result.status === 'success') {
-            alert(`✅ تم الانتهاء بنجاح!\nتم إرسال: ${result.count} رسالة.`);
+            // === التعديل هنا: حفظ عدد الرسائل داخل المحاضرة نفسها ===
+            if (typeof state.lectures[latestLecIndex].msgCount === 'undefined') {
+                state.lectures[latestLecIndex].msgCount = 0;
+            }
+            // نضيف عدد الرسائل التي تم إرسالها فعلياً لرصيد هذه المحاضرة
+            state.lectures[latestLecIndex].msgCount += result.count;
+            
+            saveData();
+            alert(`✅ تم الإرسال بنجاح (${result.count} رسالة).`);
         } else {
             alert('❌ حدث خطأ: ' + result.message);
         }
-
     } catch (error) {
-        alert('فشل الاتصال بالخادم الداخلي.\nتأكد أنك قمت بتشغيل ملف app.py وليس ملف html مباشرة.');
+        alert('فشل الاتصال بالخادم.');
         console.error(error);
     } finally {
         btn.innerHTML = oldText;
         btn.disabled = false;
     }
 }
-
-
-// Helpers
-function getInitials(name) {
-    return name.charAt(0);
+// ================= SEARCH & SORT =================
+function handleSearch() {
+    const query = document.getElementById('searchInput').value.toLowerCase().trim();
+    if (!query) {
+        renderTable(); 
+        return;
+    }
+    const filtered = state.students.filter(s => 
+        s.name.toLowerCase().includes(query) || s.phone.includes(query)
+    );
+    renderTable(filtered);
 }
 
-function cleanPhone(p) {
-    return p.replace(/[\s\-\+\(\)]/g, '');
+let sortDirection = 1; 
+function sortStudents(criteria, lecId = null) {
+    let listSort = [...state.students];
+    
+    if (criteria === 'name') {
+        // === التعديل هنا ===
+        // الترتيب بناءً على النسبة المئوية (Total Score)
+        listSort.sort((a, b) => {
+            const scoreA = getStudentTotalScore(a);
+            const scoreB = getStudentTotalScore(b);
+            
+            // لو الدرجات متساوية، رتبهم أبجدياً عشان الشكل يكون منظم
+            if (scoreA === scoreB) {
+                return a.name.localeCompare(b.name, 'ar');
+            }
+            
+            // الترتيب من الأعلى للأقل (تنازلي) مضروب في اتجاه الترتيب (عشان لو ضغط تاني يعكس)
+            return (scoreB - scoreA) * sortDirection;
+        });
+
+    } else if (criteria === 'score') {
+        // ترتيب "عدد" مرات الحضور (ده الزرار القديم اللي عليه علامة الرسم البياني)
+        listSort.sort((a, b) => {
+            const countA = Object.values(a.progress || {}).filter(v => v).length;
+            const countB = Object.values(b.progress || {}).filter(v => v).length;
+            return (countB - countA) * sortDirection; 
+        });
+
+    } else if (criteria === 'lecture' && lecId) {
+        // الترتيب حسب درجة محاضرة معينة
+        const lecture = state.lectures.find(l => l.id === lecId);
+        const ts = lecture ? lecture.timestamp : Date.now();
+        
+        listSort.sort((a, b) => {
+            const scoreA = calculateScore(ts, a.progress[lecId]);
+            const scoreB = calculateScore(ts, b.progress[lecId]);
+            return (scoreB - scoreA) * sortDirection;
+        });
+    }
+    
+    sortDirection *= -1; // عكس الاتجاه للمرة القادمة (تصاعدي/تنازلي)
+    renderTable(listSort);
 }
 
+// ================= EXCEL (STYLED) =================
 function exportToExcel() {
-    let csv = '\uFEFF'; 
+    if (typeof XLSX === 'undefined') { alert('المكتبة غير محملة'); return; }
 
-    const headerRow = ['#', 'الاسم', 'الهاتف', ...state.lectures.map(l => l.title)];
-    csv += headerRow.join(',') + '\n';
+    const data = [];
+    const header = ['#', 'اسم الطالب', 'رقم الهاتف'];
+    state.lectures.forEach(l => header.push(l.title));
+    header.push('النسبة');
+    data.push(header);
 
     state.students.forEach((s, i) => {
-        const row = [
-            i + 1,
-            `"${s.name}"`, 
-            `'${s.phone}`, 
-        ];
+        const row = [i + 1, s.name, s.phone];
+        let c = 0;
         state.lectures.forEach(l => {
-            row.push(s.progress[l.id] ? 'تم' : 'غائب');
+            const p = s.progress[l.id];
+            row.push(p ? '✔' : '✖');
+            if(p) c++;
         });
-        csv += row.join(',') + '\n';
+        const pct = state.lectures.length > 0 ? Math.round((c/state.lectures.length)*100)+'%' : '0%';
+        row.push(pct);
+        data.push(row);
     });
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    const wscols = [{wch:5}, {wch:30}, {wch:15}];
+    state.lectures.forEach(() => wscols.push({wch:12}));
+    wscols.push({wch:10});
+    ws['!cols'] = wscols;
+
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const addr = XLSX.utils.encode_cell({r:R, c:C});
+            if(!ws[addr]) continue;
+            
+            ws[addr].s = {
+                font: { name: "Arial", sz: 11 },
+                alignment: { vertical: "center", horizontal: "center" },
+                border: {
+                    top:{style:"thin", color:{rgb:"CCCCCC"}},
+                    bottom:{style:"thin", color:{rgb:"CCCCCC"}},
+                    left:{style:"thin", color:{rgb:"CCCCCC"}},
+                    right:{style:"thin", color:{rgb:"CCCCCC"}}
+                }
+            };
+
+            if (R === 0) {
+                ws[addr].s.fill = { fgColor: { rgb: "1A5D3A" } };
+                ws[addr].s.font = { name: "Arial", sz: 12, bold: true, color: { rgb: "FFFFFF" } };
+            } else {
+                if(ws[addr].v === '✔') ws[addr].s.font.color = { rgb: "008000" };
+                if(ws[addr].v === '✖') ws[addr].s.font.color = { rgb: "FF0000" };
+            }
+        }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "سجل المتابعة");
+    XLSX.writeFile(wb, `Sabiq_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+// ================= THEME & NOTES =================
+function toggleTheme() {
+    document.body.classList.toggle('dark-theme');
+    const isDark = document.body.classList.contains('dark-theme');
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    updateThemeIcon(isDark);
+}
+
+function loadTheme() {
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+        document.body.classList.add('dark-theme');
+        updateThemeIcon(true);
+    }
+}
+
+function updateThemeIcon(isDark) {
+    const icon = document.querySelector('.btn-action i.fa-moon, .btn-action i.fa-sun');
+    if(icon) {
+        icon.className = isDark ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+    }
+}
+
+let currentEditingStudentId = null;
+function openNotesModal(studentId) {
+    const student = state.students.find(s => s.id === studentId);
+    if (!student) return;
+    
+    currentEditingStudentId = studentId;
+
+    // تعبئة البيانات الأساسية
+    document.getElementById('modal-student-name').innerText = student.name;
+    document.getElementById('modal-student-phone').innerText = student.phone;
+    document.getElementById('modal-avatar').innerText = getInitials(student.name);
+    document.getElementById('student-notes').value = student.notes || '';
+    
+    const historyContainer = document.getElementById('attendance-history');
+    historyContainer.innerHTML = '';
+    
+    let chartLabels = [];
+    let chartData = [];
+
+    // التكرار على المحاضرات
+    state.lectures.forEach((lec) => {
+        const progressValue = student.progress[lec.id];
+        const score = calculateScore(lec.timestamp, progressValue);
+        
+        let statusText = 'غائب';
+        let statusClass = 'absent';
+        let icon = '<i class="fa-solid fa-xmark"></i>';
+        
+        // تحديد النص في القائمة الجانبية
+        if (progressValue) {
+            statusClass = 'present';
+            icon = '<i class="fa-solid fa-check"></i>';
+            
+            // نصوص الحالة بناءً على الدرجة
+            if(score === 100) statusText = 'تم (السبت)';
+            else if(score === 90) statusText = 'تم (الأحد)';
+            else if(score === 80) statusText = 'تم (الاثنين)';
+            else if(score === 70) statusText = 'تم (الثلاثاء)';
+            else if(score === 60) statusText = 'تم (الأربعاء)';
+            else if(score === 50) statusText = 'تم (الخميس)';
+            else if(score === 40) statusText = 'تم (الجمعة)';
+            else if(score === 30) statusText = 'تأخير أسبوع';
+            else if(score === 20) statusText = 'تأخير أسبوعين';
+            else if(score === 10) statusText = 'تأخير > أسبوعين';
+            
+            // تلوين القائمة الجانبية بالأحمر للتأخيرات الطويلة
+            if(score <= 30) statusClass = 'absent'; 
+        }
+
+        const itemHTML = `
+            <div class="history-item ${statusClass}">
+                <div>
+                    <div style="font-weight:bold">${lec.title}</div>
+                    <div class="date" style="font-size:0.7rem; color:#aaa;">
+                         ${progressValue && progressValue !== true ? new Date(progressValue).toLocaleDateString('ar-EG') : ''}
+                    </div>
+                </div>
+                <div class="status">${icon} ${statusText}</div>
+            </div>
+        `;
+        historyContainer.insertAdjacentHTML('afterbegin', itemHTML);
+
+        chartLabels.push(lec.title);
+        chartData.push(score);
+    });
+
+    // إعداد الرسم البياني
+    const ctx = document.getElementById('performanceChart').getContext('2d');
+    
+    if (performanceChart) {
+        performanceChart.destroy();
+    }
+
+    performanceChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: chartLabels,
+            datasets: [{
+                label: 'حالة التسليم',
+                data: chartData,
+                borderColor: '#1A5D3A',
+                backgroundColor: 'rgba(26, 93, 58, 0.05)',
+                borderWidth: 3,
+                pointBackgroundColor: function(context) {
+                    var val = context.raw;
+                    if (val >= 90) return '#27ae60'; // أخضر (ممتاز)
+                    if (val >= 40) return '#f39c12'; // برتقالي (خلال الأسبوع)
+                    return '#e74c3c'; // أحمر (تأخير أسابيع)
+                },
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointRadius: 6,
+                pointHoverRadius: 8,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: {
+                padding: { top: 20, right: 10, left: 10, bottom: 0 }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    min: 0,
+                    grid: {
+                        color: '#f0f0f0',
+                        drawBorder: false
+                    },
+                    ticks: {
+                        stepSize: 10,
+                        font: { family: 'Cairo', size: 10, weight: 'bold' }, // تصغير الخط قليلاً ليسع الكلام
+                        color: '#555',
+                        // هنا تحويل الأرقام للنصوص الجديدة
+                        callback: function(value) {
+                            if(value === 100) return 'السبت 👑';
+                            if(value === 90) return 'الأحد';
+                            if(value === 80) return 'الاثنين';
+                            if(value === 70) return 'الثلاثاء';
+                            if(value === 60) return 'الأربعاء';
+                            if(value === 50) return 'الخميس';
+                            if(value === 40) return 'الجمعة';
+                            if(value === 30) return 'تأخير أسبوع';
+                            if(value === 20) return 'تأخير أسبوعين';
+                            if(value === 10) return '> أسبوعين';
+                            if(value === 0) return 'غائب';
+                            return '';
+                        }
+                    }
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { font: { family: 'Cairo' } }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    backgroundColor: '#1A5D3A',
+                    titleFont: { family: 'Cairo' },
+                    bodyFont: { family: 'Cairo' },
+                    callbacks: {
+                        label: function(context) {
+                            const val = context.raw;
+                            let status = '';
+                            if(val === 100) status = 'تسليم يوم السبت (ممتاز)';
+                            else if(val === 90) status = 'تسليم يوم الأحد';
+                            else if(val >= 40) status = 'تسليم خلال الأسبوع';
+                            else if(val === 30) status = 'تأخر أسبوعاً كاملاً';
+                            else if(val === 20) status = 'تأخر أسبوعين';
+                            else if(val === 10) status = 'تأخر أكثر من أسبوعين';
+                            else status = 'لم يسلم (غائب)';
+                            return `الحالة: ${status}`;
+                        }
+                    }
+                },
+                legend: { display: false }
+            }
+        }
+    });
+
+    document.getElementById('notes-modal').style.display = 'flex';
+}
+function closeNotesModal() {
+    document.getElementById('notes-modal').style.display = 'none';
+    currentEditingStudentId = null;
+}
+
+function saveStudentNotes() {
+    if (!currentEditingStudentId) return;
+    const idx = state.students.findIndex(s => s.id === currentEditingStudentId);
+    if (idx !== -1) {
+        state.students[idx].notes = document.getElementById('student-notes').value;
+        saveData();
+        closeNotesModal();
+    }
+}
+
+window.onclick = function(e) {
+    if (e.target == document.getElementById('notes-modal')) closeNotesModal();
+}
+
+function getReportFile() {
+    const totalStudents = state.students.length;
+    let reportText = `=== تقرير منصة سابق التعليمية ===
+تاريخ الاستخراج: ${new Date().toLocaleDateString('ar-EG')}
+عدد الطلاب الكلي: ${totalStudents}
+
+📊 تفاصيل المحاضرات والرسائل:
+----------------------------------------\n`;
+
+    // الدوران على كل المحاضرات لعرض تفاصيلها
+    state.lectures.forEach((lec, index) => {
+        // حساب الحضور لهذه المحاضرة
+        const presentCount = state.students.filter(s => s.progress[lec.id]).length;
+        const absentCount = totalStudents - presentCount;
+        const attendancePct = totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : 0;
+        
+        // جلب عدد الرسائل المسجلة لهذه المحاضرة (أو صفر لو مفيش)
+        const msgsSent = lec.msgCount || 0;
+
+        reportText += `
+${index + 1}. محاضرة: ${lec.title}
+   - الحضور: ${presentCount} | الغياب: ${absentCount}
+   - نسبة الحضور: ${attendancePct}%
+   - 📩 رسائل المتابعة المرسلة: ${msgsSent} رسالة
+----------------------------------------`;
+    });
+
+    reportText += `\n
+📈 ملخص عام:
+----------------------------------------
+• إجمالي المحاضرات: ${state.lectures.length}
+• إجمالي الرسائل المرسلة (لجميع المحاضرات): ${state.lectures.reduce((acc, l) => acc + (l.msgCount || 0), 0)}
+
+تم استخراج هذا التقرير آلياً.`;
+
+    // إنشاء وتحميل الملف
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `sajil_mutabaa_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `Detailed_Report_${new Date().toISOString().slice(0,10)}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 }
+ 
+// ================= BACKUP & RESTORE =================
+function backupData() {
+    // نجمع كل البيانات المهمة
+    const backup = {
+        students: state.students,
+        lectures: state.lectures,
+        settings: state.settings,
+        habits: JSON.parse(localStorage.getItem('Sabiq_habits_data') || '[]'), // لو عايز تحفظ العادات كمان
+        date: new Date().toISOString()
+    };
 
-// Start
+    const dataStr = JSON.stringify(backup, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    
+    // إنشاء رابط تحميل وهمي والضغط عليه
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Sabiq_Backup_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function restoreData(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    if (!confirm("تحذير: استرجاع النسخة سيحذف البيانات الحالية ويستبدلها بالنسخة. هل أنت متأكد؟")) {
+        input.value = ''; // تفريغ الملف
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = JSON.parse(e.target.result);
+            
+            // التحقق من صحة الملف
+            if (data.students && data.lectures) {
+                // استرجاع البيانات الأساسية
+                state.students = data.students;
+                state.lectures = data.lectures;
+                if(data.settings) state.settings = data.settings;
+                
+                saveData(); // حفظ في LocalStorage
+
+                // استرجاع بيانات العادات (لو موجودة)
+                if (data.habits) {
+                    localStorage.setItem('Sabiq_habits_data', JSON.stringify(data.habits));
+                }
+
+                alert("✅ تم استرجاع البيانات بنجاح!");
+                location.reload(); // إعادة تحميل الصفحة لتحديث العرض
+            } else {
+                alert("❌ ملف غير صالح.");
+            }
+        } catch (err) {
+            alert("❌ حدث خطأ أثناء قراءة الملف: " + err);
+        }
+    };
+    reader.readAsText(file);
+}
+ 
+// ================= CONTEXT MENU LOGIC =================
+let contextTarget = { sId: null, lId: null };
+
+function showContextMenu(e, sId, lId) {
+    e.preventDefault(); // منع قائمة المتصفح الافتراضية
+    contextTarget = { sId, lId };
+    
+    const menu = document.getElementById('context-menu');
+    
+    // حساب موقع الماوس
+    let x = e.clientX;
+    let y = e.clientY;
+    
+    // التأكد من أن القائمة لا تخرج خارج الشاشة
+    if (x + 200 > window.innerWidth) x -= 200;
+    
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    menu.style.display = 'block';
+}
+
+function manualStatus(daysOffset) {
+    const { sId, lId } = contextTarget;
+    if (!sId || !lId) return;
+
+    const student = state.students.find(s => s.id === sId);
+    const lecture = state.lectures.find(l => l.id === lId);
+
+    if (student && lecture) {
+        if (daysOffset === -1) {
+            // حالة الحذف (غياب)
+            delete student.progress[lId];
+        } else {
+            // حساب التاريخ: تاريخ المحاضرة + عدد أيام التأخير
+            // نستخدم timestamp المحاضرة، ونضيف عليه (عدد الأيام * ملي ثانية في اليوم)
+            // إضافة 10 دقائق لضمان عدم حدوث مشاكل في فروق التوقيت
+            const targetDate = lecture.timestamp + (daysOffset * 24 * 60 * 60 * 1000) + (10 * 60 * 1000);
+            student.progress[lId] = targetDate;
+        }
+        saveData();
+    }
+    
+    hideContextMenu();
+}
+
+function hideContextMenu() {
+    document.getElementById('context-menu').style.display = 'none';
+    contextTarget = { sId: null, lId: null };
+}
+
+// إغلاق القائمة عند الضغط في أي مكان
+document.addEventListener('click', hideContextMenu);
+// إغلاق القائمة عند عمل سكرول
+document.addEventListener('scroll', hideContextMenu);
+
+// Helpers
+function getInitials(name) { return name ? name.charAt(0) : '?'; }
+function cleanPhone(p) { return p.replace(/[\s\-\+\(\)]/g, ''); }
+
 document.addEventListener('DOMContentLoaded', init);
+
+
+// ================= CERTIFICATE GENERATION =================
+// وظيفة إنشاء وتحميل الشهادة باستخدام Canvas
+window.app.downloadCert = function(studentName, lectureCount) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+
+    // تأكد أن الصورة في مجلد static بنفس هذا الاسم تماماً
+    img.src = '/static/certificate_template.jpg'; 
+
+    img.onload = function() {
+        canvas.width = img.width;   
+        canvas.height = img.height; 
+        ctx.drawImage(img, 0, 0);
+
+        // 1. تنسيق اسم الطالب (توسيط في المربع الأبيض)
+        const nameFontSize = Math.floor(canvas.width * 0.045); 
+        ctx.font = `bold ${nameFontSize}px Cairo`; 
+        ctx.fillStyle = '#1A2E35'; 
+        ctx.textAlign = 'center';
+        // تم الضبط على 54% ليكون الاسم في قلب البرواز الأبيض تماماً
+        ctx.fillText(studentName, canvas.width * 0.50, canvas.height * 0.54); 
+
+        // 2. تنسيق رقم المحاضرة (ضبط دقيق داخل الأقواس)
+        const numFontSize = Math.floor(canvas.width * 0.032); 
+        ctx.font = `bold ${numFontSize}px Cairo`;
+        ctx.fillStyle = '#FFFFFF'; 
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        ctx.fillText(
+            lectureCount,
+            560, // X بالبكسل (منتصف الأقواس)
+            705  // Y بالبكسل (منتصف السطر)
+        );
+
+        // كود التاريخ محذوف نهائياً بناءً على طلبك
+
+        // بدء التحميل
+        const link = document.createElement('a');
+        link.download = `شهادة_تقدير_${studentName}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    };
+    
+    img.onerror = function() {
+        alert("تأكد من وضع ملف الصورة certificate_template.jpg داخل مجلد static");
+    };
+};
+
+// ================= BATCH PDF GENERATION (تعديل الطباعة) =================
+window.app.downloadLecturePDF = function(lecId, lecTitle) {
+    if (!window.jspdf) { 
+        alert("مكتبة PDF غير محملة! تأكد من إضافتها في index.html"); 
+        return; 
+    }
+    
+    const attendees = state.students.filter(s => s.progress[lecId]);
+    
+    if (attendees.length === 0) {
+        alert("لا يوجد حضور مسجل لهذه المحاضرة.");
+        return;
+    }
+
+    if (!confirm(`سيتم استخراج ملف PDF يحتوي على ${attendees.length} شهادة.\nهل تريد الاستمرار؟`)) return;
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'px',
+        format: [800, 600]
+    });
+
+    const img = new Image();
+    img.src = '/static/certificate_template.jpg'; 
+
+    img.onload = function() {
+        attendees.forEach((student, index) => {
+            if (index > 0) doc.addPage(); 
+
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            
+            // 1. رسم الخلفية
+            ctx.drawImage(img, 0, 0);
+
+            // 2. كتابة اسم الطالب
+            const nameFontSize = Math.floor(canvas.width * 0.045); 
+            ctx.font = `bold ${nameFontSize}px Cairo, sans-serif`; 
+            ctx.fillStyle = '#1A2E35'; // لون الاسم (كحلي غامق)
+            ctx.textAlign = 'center';
+            ctx.fillText(student.name, canvas.width * 0.50, canvas.height * 0.54); 
+
+            // 3. كتابة رقم المحاضرة (التعديل الجديد)
+            const titleFontSize = Math.floor(canvas.width * 0.025); 
+            ctx.font = `bold ${titleFontSize}px Cairo, sans-serif`;
+            
+            // --- التغيير الأول: اللون أبيض ---
+            ctx.fillStyle = '#FFFFFF'; 
+            
+            ctx.textAlign = 'center';
+            
+            // --- التغيير الثاني: حذف كلمة "محاضرة" عشان يكتب الرقم بس ---
+            // هذا السطر يمسح كلمة "محاضرة" والمسافات الزائدة فيبقى الرقم فقط
+            let textToPrint = lecTitle.replace("محاضرة", "").replace("محاضره", "").trim();
+            
+            // --- التغيير الثالث: ضبط المكان ---
+            // قمت بتقليل الرقم 560 إلى 500 لتحريك النص لليسار قليلاً ليدخل بين القوسين
+            // إذا لم يكن في المنتصف، جرب تغيير 500 إلى رقم أكبر أو أصغر
+            ctx.fillText(textToPrint, 560, 705); 
+
+            const dataURL = canvas.toDataURL('image/jpeg', 0.8);
+            doc.addImage(dataURL, 'JPEG', 0, 0, 800, 600);
+        });
+
+        doc.save(`شهادات_حضور_${lecTitle}.pdf`);
+    };
+
+    img.onerror = function() {
+        alert("الصورة غير موجودة");
+    };
+};
+
+// ================= BULK IMPORT & EDIT LOGIC =================
+
+// دالة معالجة الاستيراد الذكي (أرقام أو أسماء)
+function processBulkImport() {
+    const rawText = document.getElementById('import-text').value;
+    if (!rawText.trim()) return;
+
+    const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+    if (lines.length === 0) return;
+
+    if (!confirm(`سيتم استيراد ${lines.length} سجل. هل أنت متأكد؟`)) return;
+
+    let added = 0;
+    lines.forEach((line, idx) => {
+        // التحقق: هل المدخل رقم هاتف أم اسم؟
+        // إذا كان يحتوي على أرقام فقط ويعتبر طويلاً، نعتبره هاتفاً
+        const isPhone = /^[0-9+\-\s()]{8,}$/.test(line);
+        
+        let newName = '';
+        let newPhone = '';
+
+        if (isPhone) {
+            newPhone = cleanPhone(line);
+            newName = `طالب ${state.students.length + 1 + idx}`; // اسم مؤقت
+        } else {
+            newName = line;
+            newPhone = ''; // بدون رقم حالياً
+        }
+
+        // منع التكرار (نتحقق بالاسم أو الرقم)
+        const exists = state.students.some(s => 
+            (newPhone && s.phone === newPhone) || (s.name === newName)
+        );
+
+        if (!exists) {
+            state.students.push({
+                id: Date.now() + idx, // ID فريد
+                name: newName,
+                phone: newPhone,
+                progress: {},
+                notes: ''
+            });
+            added++;
+        }
+    });
+
+    saveData();
+    window.app.closeImport();
+    document.getElementById('import-text').value = ''; // تنظيف الخانة
+    alert(`✅ تم إضافة ${added} طالب جديد.`);
+}
+
+// فتح نافذة التعديل
+function openEditStudentModal(id) {
+    const student = state.students.find(s => s.id === id);
+    if (!student) return;
+
+    document.getElementById('edit-id').value = id;
+    document.getElementById('edit-name').value = student.name;
+    document.getElementById('edit-phone').value = student.phone;
+    
+    document.getElementById('edit-student-modal').style.display = 'flex';
+}
+
+// حفظ التعديل
+function saveStudentDataEdit() {
+    const id = parseFloat(document.getElementById('edit-id').value); // تحويل لرقم
+    const newName = document.getElementById('edit-name').value;
+    const newPhone = document.getElementById('edit-phone').value;
+
+    if (!newName) { alert('الاسم مطلوب'); return; }
+
+    const idx = state.students.findIndex(s => s.id === id);
+    if (idx !== -1) {
+        state.students[idx].name = newName;
+        state.students[idx].phone = cleanPhone(newPhone);
+        saveData();
+        document.getElementById('edit-student-modal').style.display = 'none';
+    }
+}
+
+// دالة الحذف الكامل (في آخر الملف)
+function wipeAllData() {
+    const code = prompt("تحذير: هذا سيحذف كل الطلاب والمحاضرات!\nللتأكيد اكتب: delete");
+    if (code === 'delete') {
+        state.students = [];
+        state.lectures = [];
+        saveData();
+        renderDashboard();
+        alert("تم تصفير النظام بنجاح. ابدأ بداية جديدة! 🚀");
+    }
+}
