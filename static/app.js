@@ -1,10 +1,10 @@
 /**
- * Sabiq Educational Platform
+ * Athar Educational Platform
  * Core Application Logic (Full Version)
  */
 
-const APP_KEY = 'Sabiq_data_v0'; 
-const SESSION_KEY = 'Sabiq_session';
+const APP_KEY = 'Athar_data_v0'; 
+const SESSION_KEY = 'Athar_session';
 
 // State Object
 let state = {
@@ -661,7 +661,7 @@ function exportToExcel() {
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "سجل المتابعة");
-    XLSX.writeFile(wb, `Sabiq_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(wb, `Athar_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
 // ================= THEME & NOTES =================
@@ -873,7 +873,7 @@ window.onclick = function(e) {
 
 function getReportFile() {
     const totalStudents = state.students.length;
-    let reportText = `=== تقرير منصة سابق التعليمية ===
+    let reportText = `=== تقرير منصة أثر التعليمية ===
 تاريخ الاستخراج: ${new Date().toLocaleDateString('ar-EG')}
 عدد الطلاب الكلي: ${totalStudents}
 
@@ -923,7 +923,7 @@ function backupData() {
         students: state.students,
         lectures: state.lectures,
         settings: state.settings,
-        habits: JSON.parse(localStorage.getItem('Sabiq_habits_data') || '[]'), // لو عايز تحفظ العادات كمان
+        habits: JSON.parse(localStorage.getItem('Athar_habits_data') || '[]'), // لو عايز تحفظ العادات كمان
         date: new Date().toISOString()
     };
 
@@ -934,7 +934,7 @@ function backupData() {
     // إنشاء رابط تحميل وهمي والضغط عليه
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Sabiq_Backup_${new Date().toISOString().slice(0,10)}.json`;
+    a.download = `Athar_Backup_${new Date().toISOString().slice(0,10)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -966,7 +966,7 @@ function restoreData(input) {
 
                 // استرجاع بيانات العادات (لو موجودة)
                 if (data.habits) {
-                    localStorage.setItem('Sabiq_habits_data', JSON.stringify(data.habits));
+                    localStorage.setItem('Athar_habits_data', JSON.stringify(data.habits));
                 }
 
                 alert("✅ تم استرجاع البيانات بنجاح!");
