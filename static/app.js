@@ -478,20 +478,15 @@ function calculateScore(lectureTimestamp, checkTimestamp) {
     
     return 10; 
 }
-// ================= MESSAGING =================
+// ================= MESSAGING WITH BATCHES =================
 async function startMessagingFlow() {
     const msgText = document.getElementById('message-text').value;
-
-    if (!msgText.trim()) { 
-        alert('الرجاء كتابة نص الرسالة.'); return; 
-    }
-
+    if (!msgText.trim()) { alert('الرجاء كتابة نص الرسالة.'); return; }
     if (state.lectures.length === 0) { alert('لا توجد محاضرات.'); return; }
     
-    // تحديد آخر محاضرة (التي يتم الإرسال بناءً عليها)
+    // 1. تحديد المستهدفين
     const latestLecIndex = state.lectures.length - 1;
     const latestLec = state.lectures[latestLecIndex];
-    
     const targetsRaw = state.students.filter(s => !s.progress[latestLec.id]);
 
     if (targetsRaw.length === 0) { alert('لا يوجد غياب لهذه المحاضرة!'); return; }
@@ -501,48 +496,82 @@ async function startMessagingFlow() {
         phone: cleanPhone(s.phone)
     }));
 
-    if (!confirm(`سيتم الإرسال لـ ${targets.length} طالب.\nهل أنت متأكد؟`)) return;
+    // 2. إعداد الدفعات
+    const BATCH_SIZE = 25; // حجم الدفعة (يمكنك تعديله)
+    const totalBatches = Math.ceil(targets.length / BATCH_SIZE);
+    
+    if (!confirm(`سيتم الإرسال لـ ${targets.length} طالب.\nسيتم تقسيمهم إلى ${totalBatches} دفعات (كل دفعة ${BATCH_SIZE}).\nهل أنت متأكد؟`)) return;
 
     const btn = document.querySelector('.btn-whatsapp');
-    const oldText = btn.innerHTML;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري الإرسال...';
-    btn.disabled = true;
-
+    const originalBtnText = btn.innerHTML;
     const includeNameElement = document.getElementById('include-name-toggle');
     const includeName = includeNameElement ? includeNameElement.checked : true;
 
-    const payload = {
-        students: targets,
-        message: msgText,
-        include_name: includeName 
+    // دالة مساعدة لانتظار وقت معين (CountDown)
+    const waitWithCountdown = async (seconds) => {
+        for (let i = seconds; i > 0; i--) {
+            btn.innerHTML = `<i class="fa-solid fa-hourglass-half"></i> استراحة أمان: ${i} ثانية...`;
+            await new Promise(r => setTimeout(r, 1000));
+        }
     };
 
     try {
-        const response = await fetch('/api/send_whatsapp', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
+        let totalSent = 0;
 
-        const result = await response.json();
-        if (result.status === 'success') {
-            // === التعديل هنا: حفظ عدد الرسائل داخل المحاضرة نفسها ===
-            if (typeof state.lectures[latestLecIndex].msgCount === 'undefined') {
-                state.lectures[latestLecIndex].msgCount = 0;
+        for (let i = 0; i < totalBatches; i++) {
+            // تحديد الدفعة الحالية
+            const start = i * BATCH_SIZE;
+            const end = start + BATCH_SIZE;
+            const currentBatch = targets.slice(start, end);
+
+            // تحديث الزر
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> إرسال دفعة ${i + 1} من ${totalBatches}...`;
+            btn.disabled = true;
+
+            // إرسال الدفعة للسيرفر
+            const payload = {
+                students: currentBatch,
+                message: msgText,
+                include_name: includeName 
+            };
+
+            const response = await fetch('/api/send_whatsapp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
+
+            if (result.status === 'success') {
+                totalSent += result.count;
+                
+                // تحديث العداد في المحاضرة فوراً
+                if (typeof state.lectures[latestLecIndex].msgCount === 'undefined') {
+                    state.lectures[latestLecIndex].msgCount = 0;
+                }
+                state.lectures[latestLecIndex].msgCount += result.count;
+                saveData();
+
+                // إذا لم تكن الدفعة الأخيرة، نأخذ استراحة طويلة
+                if (i < totalBatches - 1) {
+                    // استراحة 2 دقيقة (120 ثانية) بين كل دفعة والأخرى لتجنب الحظر
+                    await waitWithCountdown(120); 
+                }
+                
+            } else {
+                alert(`❌ توقف خطأ في الدفعة ${i+1}: ` + result.message);
+                break; // إيقاف اللوب في حالة الخطأ
             }
-            // نضيف عدد الرسائل التي تم إرسالها فعلياً لرصيد هذه المحاضرة
-            state.lectures[latestLecIndex].msgCount += result.count;
-            
-            saveData();
-            alert(`✅ تم الإرسال بنجاح (${result.count} رسالة).`);
-        } else {
-            alert('❌ حدث خطأ: ' + result.message);
         }
+
+        alert(`✅ تمت العملية! تم إرسال ${totalSent} رسالة بنجاح.`);
+
     } catch (error) {
         alert('فشل الاتصال بالخادم.');
         console.error(error);
     } finally {
-        btn.innerHTML = oldText;
+        btn.innerHTML = originalBtnText;
         btn.disabled = false;
     }
 }
