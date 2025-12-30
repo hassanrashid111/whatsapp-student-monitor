@@ -191,7 +191,15 @@
               <span class="toggle-label">إدراج اسم الطالب في بداية الرسالة</span>
             </div>
             <div class="message-body">
-              <textarea id="message-text" placeholder="قم بصياغة الرسالة التي سيتم إرسالها للطلاب المتغيبين"></textarea>
+              <div style="margin-bottom: 10px; display: flex; gap: 10px; align-items: center;">
+                  <button class="btn-action" style="font-size: 0.8rem; padding: 5px 10px; background: #eee; color: #333; border: 1px solid #ccc;" onclick="insertVariable('{الاسم}')">
+                      <i class="fa-solid fa-user-tag"></i> إدراج اسم الطالب {الاسم}
+                  </button>
+                  <span style="font-size: 0.8rem; color: #777;">سيتم استبدال {الاسم} باسم كل طالب تلقائياً.</span>
+              </div>
+
+              <textarea id="message-text" placeholder="مثال: أهلاً بك يا {الاسم}، نود تذكيرك بموعد المحاضرة..."></textarea>
+              
               <div class="action-row">
                 <button class="btn-whatsapp" onclick="window.app.sendMessages()">
                   إرسال الرسالة عبر واتساب <i class="fa-solid fa-paper-plane"></i>

@@ -1364,3 +1364,18 @@ function resetMessageCounts() {
     saveData(); // حفظ التغييرات
     alert("✅ تم تصفير عداد الرسائل بنجاح لجميع المحاضرات.");
 }
+
+// دالة مساعدة لإدراج النص مكان المؤشر
+function insertVariable(text) {
+    const textarea = document.getElementById('message-text');
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    
+    // إدراج النص في مكان المؤشر
+    const value = textarea.value;
+    textarea.value = value.substring(0, start) + text + value.substring(end);
+    
+    // إعادة التركيز وتحديث مكان المؤشر
+    textarea.selectionStart = textarea.selectionEnd = start + text.length;
+    textarea.focus();
+}

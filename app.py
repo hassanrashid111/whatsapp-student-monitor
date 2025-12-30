@@ -106,12 +106,19 @@ def send_whatsapp():
                 phone = student['phone']
                 if len(phone) < 10: continue
 
-                # تجهيز النص
-                if include_name and student['name'].strip():
-                    first_name = student['name'].strip().split()[0]
+                # استخراج الاسم الأول للطالب
+                raw_name = student['name'].strip()
+                first_name = raw_name.split()[0] if raw_name else "الطالب"
+
+                # التحقق مما إذا كان المستخدم كتب {الاسم} داخل الرسالة
+                if "{الاسم}" in message_text:
+                    # استبدال المتغير بالاسم الأول للطالب
+                    full_msg = message_text.replace("{الاسم}", first_name)
+                elif include_name:
+                    # السلوك القديم: وضع الاسم في بداية الرسالة
                     full_msg = f"{first_name}،\n{message_text}"
                 else:
-                    first_name = "طالب"
+                    # إرسال الرسالة كما هي
                     full_msg = message_text
                 
                 encoded_msg = urllib.parse.quote(full_msg)
