@@ -91,13 +91,13 @@ def send_whatsapp():
         if "whatsapp" not in driver.current_url:
              driver.get("https://web.whatsapp.com")
 
-        # انتظار التحميل
+        # انتظار أولي لتحميل الصفحة الرئيسية
         try:
             WebDriverWait(driver, 45).until(
                 EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@role="textbox"] | //canvas | //div[@role="button"]'))
             )
         except:
-            pass # قد يحتاج المستخدم مسح الباركود
+            pass 
         
         sent_count = 0
         
@@ -106,39 +106,48 @@ def send_whatsapp():
                 phone = student['phone']
                 if len(phone) < 10: continue
 
-                if include_name:
+                # تجهيز النص
+                if include_name and student['name'].strip():
                     first_name = student['name'].strip().split()[0]
                     full_msg = f"{first_name}،\n{message_text}"
                 else:
-                    first_name = student['name']
+                    first_name = "طالب"
                     full_msg = message_text
                 
                 encoded_msg = urllib.parse.quote(full_msg)
                 url = f"https://web.whatsapp.com/send?phone={phone}&text={encoded_msg}"
                 
+                # الانتقال للرقم (هذا الأمر يعمل ريفرش للصفحة وهذا إجباري في سيلينيوم)
                 driver.get(url)
                 
                 try:
-                    # انتظار ظهور الصندوق
+                    # انتظار ظهور صندوق الكتابة
                     input_box = WebDriverWait(driver, 35).until(
                         EC.presence_of_element_located((By.XPATH, '//div[@contenteditable="true"][@role="textbox"]'))
                     )
                     
-                    # 1. انتظار بشري قبل الضغط (ثانيتين لـ 4 ثواني)
-                    time.sleep(random.uniform(2, 4))
+                    # --- التعديل (1) و (2): وقت ثابت قصير جداً ---
+                    # الانتظار 1 ثانية فقط بعد تحميل الصفحة وقبل الضغط
+                    time.sleep(1) 
+                    
+                    # السكريبت سيضغط إنتر. 
+                    # إذا كنت تريد ضغط إنتر بيدك، يمكنك وضع تعليق (#) قبل السطر التالي.
+                    # لكن لجعلها مسودة، يكفي أن السكريبت يكتب وينتظر قليلاً.
                     
                     input_box.send_keys(Keys.ENTER)
-                    sent_count += 1
-                    log(f"✅ Sent ({i+1}/{len(students)}): {first_name}")
-
-                    # 2. انتظار عشوائي بين الرسائل داخل نفس الدفعة (7 لـ 12 ثانية)
-                    # هذا الوقت آمن لأننا سنرسل 25 رسالة فقط ثم نتوقف طويلاً
-                    sleep_time = random.uniform(7, 12)
-                    time.sleep(sleep_time)
                     
+                    # --- نقطة حفظ المسودة ---
+                    # الانتظار 1.5 ثانية بعد الضغط (أو الكتابة) وقبل الانتقال للرقم التالي
+                    # هذا الوقت يسمح للواتساب بإرسال الرسالة، أو حفظها كمسودة لو الإنتر لم يعمل
+                    time.sleep(1.5)
+                    
+                    sent_count += 1
+                    log(f"✅ Processed ({i+1}/{len(students)}): {first_name}")
+
                 except Exception as e:
-                    log(f"⚠️ Failed to send to {first_name}")
-                    time.sleep(3)
+                    log(f"⚠️ Failed to process {first_name}")
+                    # انتظار قصير في حالة الخطأ قبل المحاولة التالية
+                    time.sleep(1)
                     continue
 
             except Exception as e:
@@ -148,7 +157,7 @@ def send_whatsapp():
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
-
+    
 if __name__ == '__main__':
     port = 5000
     url = f"http://127.0.0.1:{port}"

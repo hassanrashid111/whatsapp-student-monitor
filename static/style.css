@@ -1653,3 +1653,16 @@ body.dark-theme .dropdown-content a {
 body.dark-theme .dropdown-content a:hover {
     background-color: #1a2f23;
 }
+
+/* تمييز حالة رد ولم يختبر */
+.status-replied {
+    background-color: #fff3cd !important; /* لون أصفر فاتح */
+    position: relative;
+}
+.status-replied::after {
+    content: '💬'; /* أيقونة رسالة صغيرة */
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 10px;
+}

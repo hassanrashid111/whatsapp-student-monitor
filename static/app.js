@@ -44,6 +44,7 @@ window.app = {
     editStudent: (id) => openEditStudentModal(id),
     saveEditStudent: () => saveStudentDataEdit(),
     clearAllData: () => wipeAllData(),
+    resetMessages: () => resetMessageCounts(),
     downloadCert: (name, count) => downloadCertificate(name, count)
 };
  
@@ -153,7 +154,7 @@ function renderTable(studentsList = null) {
     const thead = document.getElementById('table-header-row');
     const tbody = document.getElementById('students-body');
 
-    // Headers
+    // 1. تجهيز الهيدر (Headers)
     let headersHTML = `
         <th>#</th>
         <th class="sortable-header" onclick="window.app.sort('name')" title="اضغط للترتيب" style="cursor:pointer">
@@ -162,21 +163,19 @@ function renderTable(studentsList = null) {
         <th>رقم الهاتف</th>
     `;
     
-   state.lectures.forEach(lec => {
+    state.lectures.forEach(lec => {
         headersHTML += `
             <th class="lecture-header">
                 <div style="display: flex; flex-direction: column; align-items: center; gap: 5px;">
                     <span onclick="window.app.sort('lecture', '${lec.id}')" style="cursor:pointer; user-select:none; font-size:0.9rem;">
                         ${lec.title} <i class="fa-solid fa-sort" style="opacity:0.3; font-size:0.7rem;"></i>
                     </span>
-                    
                     <div style="display:flex; gap:5px;">
                         <button onclick="window.app.downloadLecturePDF('${lec.id}', '${lec.title}')" 
                                 style="background:none; border:none; color:#27AE60; cursor:pointer; font-size:0.9rem;" 
                                 title="تحميل شهادات الحضور PDF">
                             <i class="fa-solid fa-file-pdf"></i>
                         </button>
-
                         <button onclick="window.app.deleteLecture('${lec.id}')" 
                                 style="background:none; border:none; color:#E74C3C; cursor:pointer; font-size:0.9rem;" 
                                 title="حذف العمود">
@@ -194,26 +193,26 @@ function renderTable(studentsList = null) {
     
     thead.innerHTML = headersHTML;
 
-    // Rows
-    tbody.innerHTML = '';
+    // 2. تجهيز الصفوف (السرعة هنا 🚀)
+    // المتغير ده هيجمع كل كود HTML بتاع الطلاب مرة واحدة
+    let allRowsHTML = ''; 
     const latestLecId = state.lectures.length > 0 ? state.lectures[state.lectures.length - 1].id : null;
 
     dataToRender.forEach((student, index) => {
         const isCompletedLatest = latestLecId ? student.progress[latestLecId] : false;
-        const rowClass = isCompletedLatest ? 'row-tested' : 'row-active';
+        const rowClass = (isCompletedLatest && isCompletedLatest !== 'replied') ? 'row-tested' : 'row-active';
         
-        // الرقم التسلسلي الثابت
         const originalIndex = state.students.findIndex(s => s.id === student.id);
         const serial = (originalIndex + 1).toString().padStart(3, '0');
 
-        // حساب النسبة المئوية
         const percent = getStudentTotalScore(student);
-        let progressColor = '#E74C3C'; // أحمر
-        if (percent >= 75) progressColor = '#27AE60'; // أخضر
-        else if (percent >= 50) progressColor = '#F39C12'; // برتقالي
+        let progressColor = '#E74C3C';
+        if (percent >= 75) progressColor = '#27AE60';
+        else if (percent >= 50) progressColor = '#F39C12';
 
-        const badgeHTML = isCompletedLatest ? `<span class="status-badge completed">مكتمل</span>` : '';
+        const badgeHTML = (isCompletedLatest && isCompletedLatest !== 'replied') ? `<span class="status-badge completed">مكتمل</span>` : '';
 
+        // نبني السطر ونضيفه للمتغير الكبير بدل ما نضيفه للصفحة علطول
         let rowHTML = `<tr class="${rowClass}">
             <td><span style="color:var(--primary-green); font-weight:bold;">${serial}</span></td>
             <td>
@@ -223,6 +222,9 @@ function renderTable(studentsList = null) {
                         <span class="clickable-name" onclick="window.app.openNotes(${student.id})" title="ملاحظات" style="cursor:pointer; font-weight:bold;">
                             ${student.name}
                         </span>
+                        <a href="https://web.whatsapp.com/send?phone=${student.phone}" target="_blank" style="margin-right:8px; color:#25D366; font-size:1.1rem; text-decoration:none;" title="مراسلة سريعة">
+                            <i class="fa-brands fa-whatsapp"></i>
+                        </a>
                         ${badgeHTML}
                         <div class="progress-track" style="background:#eee; height:5px; width:100%; margin-top:5px; border-radius:3px; overflow:hidden;">
                             <div style="width:${percent}%; background:${progressColor}; height:100%; border-radius:3px;"></div>
@@ -235,10 +237,11 @@ function renderTable(studentsList = null) {
 
         state.lectures.forEach(lec => {
             const progressValue = student.progress[lec.id];
-            const isChecked = !!progressValue;
-            
+            const isChecked = progressValue && progressValue !== 'replied';
+            const cellClass = progressValue === 'replied' ? 'status-replied' : '';
+
             rowHTML += `
-                <td oncontextmenu="showContextMenu(event, ${student.id}, '${lec.id}')">
+                <td class="${cellClass}" oncontextmenu="showContextMenu(event, ${student.id}, '${lec.id}')">
                     <div class="check-wrapper" style="justify-content: center;">
                         <input type="checkbox" ${isChecked ? 'checked' : ''} 
                         onchange="window.app.toggleCheck(${student.id}, '${lec.id}')"
@@ -254,14 +257,12 @@ function renderTable(studentsList = null) {
             <td style="font-weight:bold; color:${progressColor}">${percent}%</td>
             <td>
                 <div style="display:flex; gap:8px; align-items:center;">
-                    
                     <button class="btn-action" 
                             style="background:${isPerfect ? '#D4AF37' : '#2980b9'}; color:white; padding:5px 10px; border:none; border-radius:4px; cursor:pointer;" 
                             onclick="window.app.downloadCert('${student.name}', ${state.lectures.length})" 
                             title="تحميل الشهادة">
                         <i class="fa-solid fa-award"></i>
                     </button>
-
                     <button class="btn-delete-row" style="color:var(--primary-green); margin-left:5px;" onclick="window.app.editStudent(${student.id})" title="تعديل البيانات">
                         <i class="fa-solid fa-pen"></i>
                     </button>
@@ -270,14 +271,17 @@ function renderTable(studentsList = null) {
                     </button>
                 </div>
             </td>
-        `;
-        rowHTML += `</tr>`;
-        tbody.innerHTML += rowHTML;
+        </tr>`;
+        
+        // تجميع السطور في المتغير
+        allRowsHTML += rowHTML;
     });
+
+    // 3. التحديث مرة واحدة فقط (BOOM! 💥)
+    tbody.innerHTML = allRowsHTML;
 
     document.querySelector('.pagination span').innerText = `عرض ${dataToRender.length} من أصل ${state.students.length}`;
 }
-
 function renderStats() {
     const total = state.students.length;
     const latestLecId = state.lectures.length > 0 ? state.lectures[state.lectures.length - 1].id : null;
@@ -395,13 +399,24 @@ function renderHadith() {
 function addStudentFlow() {
     const name = prompt('أدخل اسم الطالب:');
     if (!name) return;
-    const phone = prompt('أدخل رقم الهاتف:');
+    
+    let phone = prompt('أدخل رقم الهاتف:');
     if (!phone) return;
+    
+    phone = cleanPhone(phone); // تنظيف الرقم الأول
+
+    // --- التحقق من التكرار ---
+    const exists = state.students.some(s => s.phone === phone);
+    if (exists) {
+        alert('⚠️ تنبيه: هذا الرقم مسجل بالفعل لطالب آخر!');
+        return; // إلغاء العملية
+    }
+    // -----------------------
 
     state.students.push({
         id: Date.now(),
         name: name,
-        phone: cleanPhone(phone),
+        phone: phone,
         progress: {},
         notes: ''
     });
@@ -453,9 +468,12 @@ function toggleStudentCheck(sId, lId) {
 // 2. دالة مساعدة لحساب الدرجة بناءً على الأيام (منطق السبت 100، الأحد 90...)
 function calculateScore(lectureTimestamp, checkTimestamp) {
     if (!checkTimestamp) return 0; 
+    
+    // --- التعديل الجديد: لو رد ولم يختبر ياخد صفر في الدرجات ---
+    if (checkTimestamp === 'replied') return 0; 
+
     if (checkTimestamp === true) return 100; 
 
-    // التعديل هنا: لو مفيش تاريخ للمحاضرة، افترض إنه دلوقتي (عشان القديم يشتغل)
     const lecDate = new Date(lectureTimestamp || Date.now());
     lecDate.setHours(0,0,0,0);
     
@@ -472,48 +490,63 @@ function calculateScore(lectureTimestamp, checkTimestamp) {
     if (diffDays === 4) return 60; 
     if (diffDays === 5) return 50; 
     if (diffDays === 6) return 40; 
-    
     if (diffDays <= 13) return 30; 
     if (diffDays <= 20) return 20; 
-    
     return 10; 
 }
-// ================= MESSAGING WITH BATCHES =================
+// ================= MESSAGING WITH BATCHES (UPDATED) =================
 async function startMessagingFlow() {
     const msgText = document.getElementById('message-text').value;
     if (!msgText.trim()) { alert('الرجاء كتابة نص الرسالة.'); return; }
     if (state.lectures.length === 0) { alert('لا توجد محاضرات.'); return; }
     
-    // 1. تحديد المستهدفين
+    // 1. تحديد المستهدفين (الغياب عن آخر محاضرة)
     const latestLecIndex = state.lectures.length - 1;
     const latestLec = state.lectures[latestLecIndex];
-    const targetsRaw = state.students.filter(s => !s.progress[latestLec.id]);
+    const absents = state.students.filter(s => !s.progress[latestLec.id]);
 
-    if (targetsRaw.length === 0) { alert('لا يوجد غياب لهذه المحاضرة!'); return; }
+    if (absents.length === 0) { alert('لا يوجد غياب لهذه المحاضرة!'); return; }
+
+    // --- التعديل الجديد (4): خيار الفلترة ---
+    // نسأل المستخدم: عايز تبعت لمين؟
+    let filterChoice = prompt(
+        "لمن تريد إرسال الرسالة؟\n" +
+        "1- للجميع (الكل)\n" +
+        "2- للمسجلين بأسماء فقط (الذين ردوا)\n" +
+        "3- للمسجلين بمسافات (الذين لم يردوا)\n\n" +
+        "أدخل رقم الخيار (1 أو 2 أو 3):", "1"
+    );
+
+    let targetsRaw = [];
+
+    if (filterChoice === '2') {
+        // الذين لهم اسم حقيقي (ليس فارغاً وليس مسافات فقط)
+        targetsRaw = absents.filter(s => s.name.trim().length > 0);
+    } else if (filterChoice === '3') {
+        // الذين اسمهم عبارة عن مسافات فقط
+        targetsRaw = absents.filter(s => s.name.trim().length === 0);
+    } else {
+        // الكل
+        targetsRaw = absents;
+    }
+
+    if (targetsRaw.length === 0) { alert('لا يوجد طلاب مطابقين لهذا الاختيار!'); return; }
 
     const targets = targetsRaw.map(s => ({
         name: s.name,
         phone: cleanPhone(s.phone)
     }));
 
-    // 2. إعداد الدفعات
-    const BATCH_SIZE = 25; // حجم الدفعة (يمكنك تعديله)
+    // --- التعديل الجديد (3): حجم الدفعة 20 ---
+    const BATCH_SIZE = 20; 
     const totalBatches = Math.ceil(targets.length / BATCH_SIZE);
     
-    if (!confirm(`سيتم الإرسال لـ ${targets.length} طالب.\nسيتم تقسيمهم إلى ${totalBatches} دفعات (كل دفعة ${BATCH_SIZE}).\nهل أنت متأكد؟`)) return;
+    if (!confirm(`تم تحديد ${targets.length} طالب.\nسيتم التقسيم على ${totalBatches} دفعات (كل دفعة ${BATCH_SIZE}).\nهل أنت متأكد من البدء؟`)) return;
 
     const btn = document.querySelector('.btn-whatsapp');
     const originalBtnText = btn.innerHTML;
     const includeNameElement = document.getElementById('include-name-toggle');
     const includeName = includeNameElement ? includeNameElement.checked : true;
-
-    // دالة مساعدة لانتظار وقت معين (CountDown)
-    const waitWithCountdown = async (seconds) => {
-        for (let i = seconds; i > 0; i--) {
-            btn.innerHTML = `<i class="fa-solid fa-hourglass-half"></i> استراحة أمان: ${i} ثانية...`;
-            await new Promise(r => setTimeout(r, 1000));
-        }
-    };
 
     try {
         let totalSent = 0;
@@ -525,7 +558,7 @@ async function startMessagingFlow() {
             const currentBatch = targets.slice(start, end);
 
             // تحديث الزر
-            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> إرسال دفعة ${i + 1} من ${totalBatches}...`;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> جاري إرسال دفعة ${i + 1} من ${totalBatches}...`;
             btn.disabled = true;
 
             // إرسال الدفعة للسيرفر
@@ -546,26 +579,31 @@ async function startMessagingFlow() {
             if (result.status === 'success') {
                 totalSent += result.count;
                 
-                // تحديث العداد في المحاضرة فوراً
+                // تحديث العداد
                 if (typeof state.lectures[latestLecIndex].msgCount === 'undefined') {
                     state.lectures[latestLecIndex].msgCount = 0;
                 }
                 state.lectures[latestLecIndex].msgCount += result.count;
                 saveData();
 
-                // إذا لم تكن الدفعة الأخيرة، نأخذ استراحة طويلة
+                // --- التعديل الجديد (3): التخيير بين الدفعات ---
                 if (i < totalBatches - 1) {
-                    // استراحة 2 دقيقة (120 ثانية) بين كل دفعة والأخرى لتجنب الحظر
-                    await waitWithCountdown(120); 
+                    btn.innerHTML = originalBtnText; // إرجاع الزر لحالته
+                    btn.disabled = false;
+                    
+                    // تشغيل صوت تنبيه بسيط (اختياري) أو مجرد نافذة
+                    if (!confirm(`✅ انتهت الدفعة ${i + 1} بنجاح.\nتم إرسال ${result.count} رسالة.\n\nهل تريد الاستمرار للدفعة التالية (${i + 2})؟\n(اضغط Cancel للإيقاف هنا)`)) {
+                        break; // إيقاف اللوب إذا ضغط المستخدم Cancel
+                    }
                 }
                 
             } else {
                 alert(`❌ توقف خطأ في الدفعة ${i+1}: ` + result.message);
-                break; // إيقاف اللوب في حالة الخطأ
+                break;
             }
         }
 
-        alert(`✅ تمت العملية! تم إرسال ${totalSent} رسالة بنجاح.`);
+        alert(`✅ انتهت العملية! إجمالي الرسائل المرسلة: ${totalSent}`);
 
     } catch (error) {
         alert('فشل الاتصال بالخادم.');
@@ -632,7 +670,7 @@ function sortStudents(criteria, lecId = null) {
     renderTable(listSort);
 }
 
-// ================= EXCEL (STYLED) =================
+// ================= EXCEL (STYLED) - FIXED =================
 function exportToExcel() {
     if (typeof XLSX === 'undefined') { alert('المكتبة غير محملة'); return; }
 
@@ -644,12 +682,22 @@ function exportToExcel() {
 
     state.students.forEach((s, i) => {
         const row = [i + 1, s.name, s.phone];
-        let c = 0;
+        let c = 0; // عداد الحضور الفعلي
+        
         state.lectures.forEach(l => {
             const p = s.progress[l.id];
-            row.push(p ? '✔' : '✖');
-            if(p) c++;
+            
+            // --- التعديل هنا ---
+            if (p === 'replied') {
+                row.push('💬'); // رمز مميز للي رد بس
+                // ملاحظة: مش هنزود العداد c
+            } else {
+                row.push(p ? '✔' : '✖');
+                if(p) c++; // تزويد العداد للحضور الحقيقي فقط
+            }
+            // -------------------
         });
+        
         const pct = state.lectures.length > 0 ? Math.round((c/state.lectures.length)*100)+'%' : '0%';
         row.push(pct);
         data.push(row);
@@ -682,8 +730,15 @@ function exportToExcel() {
                 ws[addr].s.fill = { fgColor: { rgb: "1A5D3A" } };
                 ws[addr].s.font = { name: "Arial", sz: 12, bold: true, color: { rgb: "FFFFFF" } };
             } else {
-                if(ws[addr].v === '✔') ws[addr].s.font.color = { rgb: "008000" };
-                if(ws[addr].v === '✖') ws[addr].s.font.color = { rgb: "FF0000" };
+                // تلوين الخانات بناءً على القيمة
+                if(ws[addr].v === '✔') ws[addr].s.font.color = { rgb: "008000" }; // أخضر للحاضر
+                if(ws[addr].v === '✖') ws[addr].s.font.color = { rgb: "FF0000" }; // أحمر للغائب
+                
+                // --- إضافة: تلوين "رد ولم يختبر" بالأصفر ---
+                if(ws[addr].v === '💬') {
+                    ws[addr].s.fill = { fgColor: { rgb: "FFF3CD" } }; // خلفية صفراء
+                    ws[addr].s.font.color = { rgb: "F39C12" }; // نص برتقالي
+                }
             }
         }
     }
@@ -692,7 +747,6 @@ function exportToExcel() {
     XLSX.utils.book_append_sheet(wb, ws, "سجل المتابعة");
     XLSX.writeFile(wb, `Athar_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
-
 // ================= THEME & NOTES =================
 function toggleTheme() {
     document.body.classList.toggle('dark-theme');
@@ -911,26 +965,40 @@ function getReportFile() {
 
     // الدوران على كل المحاضرات لعرض تفاصيلها
     state.lectures.forEach((lec, index) => {
-        // حساب الحضور لهذه المحاضرة
-        const presentCount = state.students.filter(s => s.progress[lec.id]).length;
-        const absentCount = totalStudents - presentCount;
-        const attendancePct = totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : 0;
-        
-        // جلب عدد الرسائل المسجلة لهذه المحاضرة (أو صفر لو مفيش)
-        const msgsSent = lec.msgCount || 0;
+// 1. حساب الحضور الفعلي (اللي عندهم درجات)
+const presentCount = state.students.filter(s => s.progress[lec.id] && s.progress[lec.id] !== 'replied').length;
 
-        reportText += `
+// 2. حساب "رد ولم يختبر" (الجديد)
+const repliedCount = state.students.filter(s => s.progress[lec.id] === 'replied').length;
+
+// 3. الغياب الكلي (الباقي)
+const absentCount = totalStudents - presentCount - repliedCount;
+
+const attendancePct = totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : 0;
+const msgsSent = lec.msgCount || 0;
+
+reportText += `
 ${index + 1}. محاضرة: ${lec.title}
-   - الحضور: ${presentCount} | الغياب: ${absentCount}
-   - نسبة الحضور: ${attendancePct}%
-   - 📩 رسائل المتابعة المرسلة: ${msgsSent} رسالة
-----------------------------------------`;
-    });
 
+   - ✅ الحضور (اختبروا): ${presentCount}
+
+   - 💬 رد ولم يختبر: ${repliedCount}
+
+   - ❌ غياب تام: ${absentCount}
+
+   - نسبة الحضور: ${attendancePct}%
+
+   - 📩 رسائل المتابعة: ${msgsSent}
+
+----------------------------------------`
+});
     reportText += `\n
 📈 ملخص عام:
+
 ----------------------------------------
+
 • إجمالي المحاضرات: ${state.lectures.length}
+
 • إجمالي الرسائل المرسلة (لجميع المحاضرات): ${state.lectures.reduce((acc, l) => acc + (l.msgCount || 0), 0)}
 
 تم استخراج هذا التقرير آلياً.`;
@@ -1031,27 +1099,29 @@ function showContextMenu(e, sId, lId) {
     menu.style.display = 'block';
 }
 
-function manualStatus(daysOffset) {
+function manualStatus(days) {
     const { sId, lId } = contextTarget;
     if (!sId || !lId) return;
 
     const student = state.students.find(s => s.id === sId);
-    const lecture = state.lectures.find(l => l.id === lId);
-
-    if (student && lecture) {
-        if (daysOffset === -1) {
-            // حالة الحذف (غياب)
+    
+    if (student) {
+        if (days === -1) {
+            // حذف (غياب)
             delete student.progress[lId];
+        } else if (days === 'replied') {
+            // --- التعديل الجديد: حالة رد ولم يختبر ---
+            student.progress[lId] = 'replied'; 
         } else {
-            // حساب التاريخ: تاريخ المحاضرة + عدد أيام التأخير
-            // نستخدم timestamp المحاضرة، ونضيف عليه (عدد الأيام * ملي ثانية في اليوم)
-            // إضافة 10 دقائق لضمان عدم حدوث مشاكل في فروق التوقيت
-            const targetDate = lecture.timestamp + (daysOffset * 24 * 60 * 60 * 1000) + (10 * 60 * 1000);
-            student.progress[lId] = targetDate;
+            // حساب التاريخ للأيام العادية
+            const lecture = state.lectures.find(l => l.id === lId);
+            if (lecture) {
+                const targetDate = lecture.timestamp + (days * 24 * 60 * 60 * 1000) + (10 * 60 * 1000);
+                student.progress[lId] = targetDate;
+            }
         }
         saveData();
     }
-    
     hideContextMenu();
 }
 
@@ -1122,21 +1192,23 @@ window.app.downloadCert = function(studentName, lectureCount) {
     };
 };
 
-// ================= BATCH PDF GENERATION (تعديل الطباعة) =================
+// ================= BATCH PDF GENERATION (FIXED) =================
 window.app.downloadLecturePDF = function(lecId, lecTitle) {
     if (!window.jspdf) { 
         alert("مكتبة PDF غير محملة! تأكد من إضافتها في index.html"); 
         return; 
     }
     
-    const attendees = state.students.filter(s => s.progress[lecId]);
+    // --- التعديل هنا: الفلترة تستبعد 'replied' ---
+    const attendees = state.students.filter(s => s.progress[lecId] && s.progress[lecId] !== 'replied');
+    // ---------------------------------------------
     
     if (attendees.length === 0) {
-        alert("لا يوجد حضور مسجل لهذه المحاضرة.");
+        alert("لا يوجد حضور مسجل (بدرجات) لهذه المحاضرة.");
         return;
     }
 
-    if (!confirm(`سيتم استخراج ملف PDF يحتوي على ${attendees.length} شهادة.\nهل تريد الاستمرار؟`)) return;
+    if (!confirm(`سيتم استخراج ملف PDF يحتوي على ${attendees.length} شهادة.\n(تم استبعاد حالات "رد ولم يختبر")\nهل تريد الاستمرار؟`)) return;
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({
@@ -1157,32 +1229,22 @@ window.app.downloadLecturePDF = function(lecId, lecTitle) {
             canvas.height = img.height;
             const ctx = canvas.getContext('2d');
             
-            // 1. رسم الخلفية
             ctx.drawImage(img, 0, 0);
 
-            // 2. كتابة اسم الطالب
+            // 1. الاسم
             const nameFontSize = Math.floor(canvas.width * 0.045); 
             ctx.font = `bold ${nameFontSize}px Cairo, sans-serif`; 
-            ctx.fillStyle = '#1A2E35'; // لون الاسم (كحلي غامق)
+            ctx.fillStyle = '#1A2E35'; 
             ctx.textAlign = 'center';
             ctx.fillText(student.name, canvas.width * 0.50, canvas.height * 0.54); 
 
-            // 3. كتابة رقم المحاضرة (التعديل الجديد)
+            // 2. رقم المحاضرة
             const titleFontSize = Math.floor(canvas.width * 0.025); 
             ctx.font = `bold ${titleFontSize}px Cairo, sans-serif`;
-            
-            // --- التغيير الأول: اللون أبيض ---
             ctx.fillStyle = '#FFFFFF'; 
-            
             ctx.textAlign = 'center';
             
-            // --- التغيير الثاني: حذف كلمة "محاضرة" عشان يكتب الرقم بس ---
-            // هذا السطر يمسح كلمة "محاضرة" والمسافات الزائدة فيبقى الرقم فقط
             let textToPrint = lecTitle.replace("محاضرة", "").replace("محاضره", "").trim();
-            
-            // --- التغيير الثالث: ضبط المكان ---
-            // قمت بتقليل الرقم 560 إلى 500 لتحريك النص لليسار قليلاً ليدخل بين القوسين
-            // إذا لم يكن في المنتصف، جرب تغيير 500 إلى رقم أكبر أو أصغر
             ctx.fillText(textToPrint, 560, 705); 
 
             const dataURL = canvas.toDataURL('image/jpeg', 0.8);
@@ -1193,10 +1255,9 @@ window.app.downloadLecturePDF = function(lecId, lecTitle) {
     };
 
     img.onerror = function() {
-        alert("الصورة غير موجودة");
+        alert("الصورة غير موجودة في مجلد static");
     };
 };
-
 // ================= BULK IMPORT & EDIT LOGIC =================
 
 // دالة معالجة الاستيراد الذكي (أرقام أو أسماء)
@@ -1288,4 +1349,18 @@ function wipeAllData() {
         renderDashboard();
         alert("تم تصفير النظام بنجاح. ابدأ بداية جديدة! 🚀");
     }
+}
+
+// ================= RESET MESSAGES COUNT =================
+function resetMessageCounts() {
+    // التأكد أولاً
+    if (!confirm("هل أنت متأكد من تصفير عداد الرسائل لجميع المحاضرات؟\nلا يمكن التراجع عن هذه الخطوة.")) return;
+
+    // تصفير العداد لكل محاضرة
+    state.lectures.forEach(lec => {
+        lec.msgCount = 0;
+    });
+
+    saveData(); // حفظ التغييرات
+    alert("✅ تم تصفير عداد الرسائل بنجاح لجميع المحاضرات.");
 }

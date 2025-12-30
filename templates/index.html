@@ -113,6 +113,9 @@
                 <a onclick="document.getElementById('restore-input').click()">
                     <i class="fa-solid fa-upload"></i> استرجاع نسخة
                 </a>
+                <a onclick="window.app.resetMessages()" style="color: #e67e22;">
+                    <i class="fa-solid fa-rotate-left"></i> تصفير الرسائل
+                </a>
                 <a onclick="window.app.clearAllData()" style="color: #e74c3c;">
                     <i class="fa-solid fa-trash-can"></i> تصفير النظام
                 </a>
@@ -245,6 +248,11 @@
     <div id="context-menu" class="context-menu" style="display: none;">
   <div class="menu-header">تحديد حالة الطالب</div>
   <ul>
+    <li class="separator"></li>
+
+    <li onclick="window.app.manualStatus('replied')">
+        <i class="fa-solid fa-comment-dots" style="color:#f39c12"></i> رد ولم يختبر
+    </li>
     <li onclick="window.app.manualStatus(0)"><i class="fa-solid fa-crown" style="color:#f1c40f"></i> تسليم السبت (100%)</li>
     <li onclick="window.app.manualStatus(1)"><i class="fa-solid fa-circle-check" style="color:#2ecc71"></i> تسليم الأحد (90%)</li>
     <li onclick="window.app.manualStatus(2)"><i class="fa-solid fa-circle-check" style="color:#2ecc71"></i> تسليم الاثنين (80%)</li>
@@ -307,5 +315,21 @@
   </div>
 </div>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <button onclick="window.scrollTo({top: 0, behavior: 'smooth'});" id="scrollTopBtn" style="display:none; position:fixed; bottom:20px; left:20px; background:#1A5D3A; color:white; border:none; border-radius:50%; width:40px; height:40px; cursor:pointer; box-shadow:0 2px 5px rgba(0,0,0,0.3); z-index:100;">
+      <i class="fa-solid fa-arrow-up"></i>
+  </button>
+
+  <script>
+      // إظهار الزر عند النزول
+      window.onscroll = function() {
+          const btn = document.getElementById('scrollTopBtn');
+          if (document.body.scrollTop > 200 || document.documentElement.scrollTop > 200) {
+              btn.style.display = "block";
+          } else {
+              btn.style.display = "none";
+          }
+      };
+  </script>
+    
   </body>
 </html>
